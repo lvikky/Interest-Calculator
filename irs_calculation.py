@@ -28,6 +28,41 @@ def find_column_name(df, candidates):
     return None
 
 
+def match_benchmark_interest(end_date, period_idx, benchmark_flows, used_indices):
+    """
+    Matches benchmark interest using a 3-tier strategy:
+    1. Exact date match (FLOW_PAYMENT_DATE == INTEREST_END_DATE)
+    2. Date window match (closest payment date within 10 days of end date)
+    3. Positional fallback (chronological period index / FLOW_ID order)
+    """
+    # 1. Exact date match
+    for idx, flow in enumerate(benchmark_flows):
+        if idx not in used_indices and flow['date'] == end_date:
+            used_indices.add(idx)
+            return flow['amount']
+
+    # 2. Window match (handles payment lag / BDC roll up to 10 days)
+    candidates = []
+    for idx, flow in enumerate(benchmark_flows):
+        if idx not in used_indices:
+            diff_days = abs((flow['date'] - end_date).days)
+            if diff_days <= 10:
+                candidates.append((diff_days, idx, flow['amount']))
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0])
+        _, best_idx, best_amt = candidates[0]
+        used_indices.add(best_idx)
+        return best_amt
+
+    # 3. Positional fallback by period index
+    if period_idx < len(benchmark_flows) and period_idx not in used_indices:
+        used_indices.add(period_idx)
+        return benchmark_flows[period_idx]['amount']
+
+    return 0.0
+
+
 def calculate_irs_schedule(product_type, input_df, bstrat_df):
     """Calculate interest accrual schedule and match against BSTRAT benchmark."""
     if input_df.empty:
@@ -44,10 +79,9 @@ def calculate_irs_schedule(product_type, input_df, bstrat_df):
     df['parsed_end'] = pd.to_datetime(df[end_col])
     df = df.sort_values(by=['parsed_start', 'parsed_end']).reset_index(drop=True)
 
-    # Build benchmark lookup dictionary from Output_BSTRAT
-    benchmark_map = {}
+    # Build chronological list of benchmark flows from Output_BSTRAT
+    benchmark_flows = []
     if not bstrat_df.empty:
-        # Filter by product type if PRODUCT column exists
         b_df = bstrat_df.copy()
         prod_col = find_column_name(b_df, ['PRODUCT', 'Product'])
         if prod_col:
@@ -60,22 +94,30 @@ def calculate_irs_schedule(product_type, input_df, bstrat_df):
 
         if pay_date_col and amount_col:
             b_df['parsed_pay_date'] = pd.to_datetime(b_df[pay_date_col])
+            flow_id_col = find_column_name(b_df, ['FLOW_ID', 'Flow ID', 'FLOWID'])
+            if flow_id_col:
+                b_df = b_df.sort_values(by=[flow_id_col, 'parsed_pay_date']).reset_index(drop=True)
+            else:
+                b_df = b_df.sort_values(by='parsed_pay_date').reset_index(drop=True)
+
             for _, brow in b_df.iterrows():
-                key = brow['parsed_pay_date'].strftime('%Y-%m-%d')
-                benchmark_map[key] = float(brow[amount_col])
+                benchmark_flows.append({
+                    'date': brow['parsed_pay_date'],
+                    'amount': float(brow[amount_col])
+                })
 
     is_receive = (product_type.upper() == 'IRS_RECEIVE')
     records = []
+    used_indices = set()
 
-    for _, row in df.iterrows():
+    for idx, row in df.iterrows():
         s_date = row['parsed_start']
         e_date = row['parsed_end']
         days = calculate_30_360_days(s_date, e_date)
         notional = float(row[principal_col]) if principal_col and pd.notna(row[principal_col]) else 1000000.0
         rate = float(row[rate_col]) if rate_col and pd.notna(row[rate_col]) else 0.0
 
-        end_key = e_date.strftime('%Y-%m-%d')
-        bstrat_interest = benchmark_map.get(end_key, 0.0)
+        bstrat_interest = match_benchmark_interest(e_date, idx, benchmark_flows, used_indices)
 
         start_str = s_date.strftime('%m/%d/%Y').lstrip('0').replace('/0', '/')
         end_str = e_date.strftime('%m/%d/%Y').lstrip('0').replace('/0', '/')
