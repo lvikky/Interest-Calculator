@@ -1,0 +1,951 @@
+# IN-7763 — Configuration Schema Generation and Validation Architecture Spike
+
+## 1. Role and responsibility
+
+Act as a Senior Software Engineer, Principal Python Developer and Software Architect with expertise in:
+
+- Python application architecture
+- Object serialization and deserialization
+- Python introspection and metaprogramming
+- JSON Schema and YAML validation
+- Hardware configuration management
+- Dependency management and Python packaging
+- CI/CD architecture
+- AWS IoT Greengrass and configuration deployment
+- Automated testing
+- Technical feasibility investigations
+- Production-grade software engineering
+
+Take ownership of Jira ticket IN-7763 on my behalf, from initial investigation through prototype implementation, testing, architectural recommendations and final technical documentation.
+
+Work independently wherever possible. Do not expect me to guide you through individual files, classes or functions. Discover the relevant information yourself from the repositories available in the current VS Code workspace.
+
+However, I must retain approval authority over all code modifications.
+
+## 2. Source of truth
+
+Use the following sources:
+
+1. Jira ticket IN-7763: Config phase 1 – spike – generate config schemas from pypg device classes or write them by hand.
+2. Configuration Lifecycle Architecture Proposal document.
+3. Jira screenshots provided alongside this prompt.
+4. Actual source code, configuration files, tests, dependency definitions and CI/CD workflows available in the repositories.
+
+Read and understand the complete architecture proposal and Jira acceptance criteria before beginning the investigation.
+
+If there is a contradiction between the Jira ticket, architecture proposal and actual implementation, clearly explain it and request clarification when the contradiction materially affects the proposed solution.
+
+Do not silently make architectural decisions based on assumptions.
+
+## 3. Ticket background
+
+The current configuration lifecycle involves:
+
+instrument-config → instrument-icc → AWS S3 → AWS IoT Greengrass → VoyagerConfigurationManager → Instrument Control (IC).
+
+Currently, IC loads YAML configuration and uses pypg to deserialize the instrument object graph and construct hardware objects.
+
+The architecture proposal introduces an independent configuration layer that validates configurations before constructing hardware objects.
+
+Most of config.yaml, specifically general.instrument, is a pypg-encoded object graph containing:
+
+- Python class paths.
+- Object properties.
+- Explicitly typed values.
+- Numeric object IDs.
+- Nested objects and lists.
+- Shared object references.
+
+Other sections of config.yaml and the additional configuration file identified in the ticket are plain YAML.
+
+The proposed architecture uses JSON Schemas generated from IC device classes, supplemented by handwritten custom validation checks.
+
+However, it is not yet established whether pypg PropertyClass exposes sufficient metadata to support reliable schema generation.
+
+This ticket exists to investigate that feasibility and provide an evidence-backed architectural recommendation.
+
+## 4. Primary objectives
+
+Complete the investigation required to answer the following three architectural questions.
+
+### Decision 1 — Validation representation
+
+Determine whether the validator should validate:
+
+- The original pypg-encoded representation as stored in config.yaml.
+- A normalized plain-data representation decoded from the encoded structure without constructing hardware objects.
+- A combination of structural validation and normalized-data validation, if justified by evidence.
+
+### Decision 2 — Schema generation strategy
+
+Determine whether JSON Schemas should be:
+
+- Automatically generated from IC device classes.
+- Entirely handwritten.
+- Generated automatically and supplemented with handwritten schema constraints and custom validation checks.
+
+Prototype schema generation for one representative IC device class and compare it with a handwritten schema for the same class.
+
+### Decision 3 — Validator library location
+
+Determine where the validator library should reside so it can be reused by:
+
+- instrument-config CI.
+- instrument-icc pipeline.
+- Instrument Control.
+
+Evaluate:
+
+- IC repository.
+- An independent shared Python package.
+- instrument-config/tools/.
+- Other existing internal packaging mechanisms, if discovered.
+
+The validator must not depend on IC or hardware-specific runtime libraries.
+
+## 5. Mandatory architectural constraints
+
+Respect the following decisions from the architecture proposal:
+
+- Use JSON Schema for configuration validation.
+- Validate loaded configuration data rather than JSON text.
+- Validation must not construct or initialize hardware objects.
+- Validation must not depend on IC.
+- IC owns device schemas and hardware safety bounds.
+- Validation errors must identify the exact problematic field.
+- Report all independently detectable validation errors together rather than stopping at the first error.
+- Validate object IDs for presence and uniqueness.
+- Support custom checks for constraints that standard JSON Schema cannot express.
+- Investigate strict integer versus float validation.
+- Consider unknown keys, missing required properties, invalid types, invalid wiring and safety bounds.
+- Support future schema versioning and backwards compatibility.
+- Keep schema generation and runtime validation responsibilities separate where appropriate.
+- Do not introduce a database on the instrument.
+- Do not introduce production workflow changes as part of this spike.
+- Do not assume that default values represent hardware safety limits.
+
+This ticket is Phase 1 background work.
+
+It is a feasibility spike, not the complete production implementation of the Configuration Lifecycle Architecture.
+
+## 6. Execution and approval protocol
+
+Follow this protocol strictly.
+
+### Phase A: Read-only investigation
+
+You are authorized to inspect repositories, read files, trace code, inspect dependency metadata and perform safe read-only analysis.
+
+You may execute safe, non-mutating commands necessary for repository investigation.
+
+Do not:
+
+- Create, modify or delete repository files.
+- Modify existing tests.
+- Install or update dependencies.
+- Change configuration files.
+- Change CI/CD workflows.
+- Modify Git branches.
+- Commit, push, merge or create pull requests.
+- Initialize hardware objects.
+- Execute scripts that communicate with physical instruments or production infrastructure.
+- Access or modify AWS resources.
+
+Complete the investigation autonomously.
+
+### Phase B: Implementation planning
+
+After completing the investigation, prepare a detailed implementation plan for the isolated proof of concept.
+
+Explain:
+
+- What changes are proposed.
+- Why each change is necessary.
+- Which repositories are affected.
+- Exact files to be created or modified.
+- Proposed classes, functions and interfaces.
+- Dependencies and potential side effects.
+- Testing strategy.
+- Risks and mitigation.
+- Rollback strategy.
+- Mapping to Jira acceptance criteria.
+
+Present the complete plan to me and explicitly request approval.
+
+STOP at this approval gate.
+
+Do not implement any proposed changes until I explicitly approve the plan.
+
+### Phase C: Approved prototype implementation
+
+Only after receiving my approval:
+
+- Implement the approved proof of concept.
+- Keep changes minimal, isolated and maintainable.
+- Follow existing repository conventions.
+- Implement only the approved scope.
+- Execute the approved tests and quality checks.
+- Document actual findings and limitations.
+
+If implementation reveals that additional changes are necessary beyond the approved plan, stop before making those additional changes and request approval.
+
+Do not repeatedly request approval for individual changes already covered by an approved implementation plan.
+
+### Phase D: Verification and closure
+
+After implementation:
+
+- Run the agreed test suite.
+- Verify the acceptance criteria.
+- Review the complete Git diff.
+- Prepare the final technical recommendation.
+- Identify unresolved questions and follow-up work.
+- Present the final results for my review.
+
+Do not commit, push or raise a PR without explicit authorization.
+
+## 7. Stage 1 — Workspace and repository investigation
+
+Identify all repositories currently available in the VS Code workspace.
+
+Relevant repositories are expected to include:
+
+- instrument-control or its actual equivalent.
+- instrument-config.
+- instrument-icc.
+- pypg, either as a repository or an installed dependency.
+- VoyagerConfigurationManager, if available and relevant.
+
+Do not assume repository names or paths. Discover the actual structure.
+
+For each relevant repository, determine:
+
+- Repository purpose.
+- Current Git branch.
+- Existing uncommitted changes.
+- Python version.
+- Dependency management mechanism.
+- Package structure.
+- Test framework.
+- Existing linting and quality checks.
+- CI/CD configuration.
+- Existing shared libraries and packaging conventions.
+
+Preserve all existing uncommitted changes.
+
+Identify repository-specific instructions such as CLAUDE.md, AGENTS.md, README files and contribution guidelines.
+
+Use targeted searches rather than reading every file in every repository.
+
+Provide source paths and line references for important findings.
+
+## 8. Stage 2 — Trace the existing configuration lifecycle
+
+Investigate the existing configuration loading mechanism end to end.
+
+Start with the following locations mentioned in the architecture proposal, verifying their actual paths:
+
+- src/common/config.py
+- src/hw/state.py
+- config_defaults/config.yaml
+- engineering_critical_config_keys.py
+- build_release.yml
+- download_instrument_configs.py
+- config_manager.py
+- pypg PropertyClass
+- pypg encode and decode implementations
+
+Determine:
+
+1. How config.yaml is obtained.
+2. How YAML is loaded.
+3. How pypg interprets the encoded object graph.
+4. How class paths are resolved.
+5. How property values are assigned.
+6. How default values are applied.
+7. How missing and unknown properties are handled.
+8. How object IDs are assigned and interpreted.
+9. How shared references are resolved.
+10. At what point hardware objects are constructed.
+11. Where hardware-related side effects may occur.
+12. What validation currently exists.
+13. What validation is currently missing.
+14. How the relevant CI/CD pipelines operate.
+
+Investigate the actual pypg dependency version and use the source corresponding to that version.
+
+Do not substitute assumptions about standard Python classes for the actual pypg implementation.
+
+Produce an existing architecture flowchart using Mermaid or an equivalent text-based representation.
+
+## 9. Stage 3 — Analyze real configuration structures
+
+Inspect representative v4 instrument configuration files available in the workspace.
+
+Use real examples to understand:
+
+- Class path representation.
+- Object definition structure.
+- Property representation.
+- Primitive typed values.
+- Nested objects.
+- Lists and nested lists.
+- Dictionaries, if supported.
+- Null or optional values.
+- Enums or custom types.
+- Numeric object IDs.
+- Shared references.
+- Forward references.
+- Cyclic references, if supported.
+- Inherited properties.
+- Existing configuration layout differences.
+- Plain YAML sections outside general.instrument.
+- The additional plain-YAML configuration file mentioned in the Jira ticket.
+
+Establish the actual encoding grammar from the source code and configuration samples.
+
+Do not invent an encoding format.
+
+Where possible, identify examples of malformed or inconsistent configuration data without modifying the original files.
+
+Investigate whether the existing config contains unknown keys, deprecated properties or type mismatches.
+
+Distinguish observed problems from hypothetical examples.
+
+Provide a concise summary of the actual structure and representative examples.
+
+## 10. Stage 4 — Investigate PropertyClass metadata
+
+This is the central technical investigation.
+
+Locate and thoroughly inspect the implementation of pypg PropertyClass and its associated property mechanisms.
+
+Determine whether the following information can be extracted safely and reliably:
+
+- Property names.
+- Primitive Python types.
+- Custom property types.
+- Default values.
+- Required versus optional properties.
+- Nullable properties.
+- Inherited properties.
+- Nested object types.
+- List element types.
+- Nested list element types.
+- Dictionary key and value types.
+- Enum members.
+- Allowed values.
+- Object reference types.
+- Property aliases.
+- Read-only properties.
+- Properties excluded from serialization.
+- Range constraints.
+- Hardware safety bounds.
+- Custom validators.
+- Constructor-defined properties.
+- Dynamically registered properties.
+
+Investigate whether metadata is exposed through:
+
+- Class attributes.
+- Python annotations.
+- Descriptors.
+- Metaclasses.
+- Property registries.
+- Class hierarchies.
+- Runtime initialization.
+- pypg-specific mechanisms.
+
+Use the actual implementation to determine the correct extraction method.
+
+Critically evaluate whether:
+
+- Metadata can be obtained without instantiating device classes.
+- Importing device modules causes hardware-related side effects.
+- Accessing descriptors or metadata triggers initialization.
+- Inherited properties are discoverable.
+- Metadata accurately reflects what pypg decoding accepts.
+- Metadata is deterministic across executions.
+- The metadata available is sufficient to generate useful schemas.
+
+Do not dynamically import arbitrary class paths supplied by configuration files.
+
+Investigate safe class discovery or explicitly trusted class registries where appropriate.
+
+Produce a metadata coverage matrix with the following columns:
+
+- Metadata capability.
+- Supported, partially supported or unsupported.
+- Extraction mechanism.
+- Source file and line reference.
+- Actual example.
+- Limitation.
+- Impact on schema generation.
+
+This matrix must be evidence-based rather than speculative.
+
+## 11. Stage 5 — Select a representative IC device class
+
+Investigate the autofocus device class referenced in the Jira ticket, which appears to be PFA_DT_Autofocus.
+
+Verify the exact class name and source path.
+
+Determine whether it is a suitable prototype candidate.
+
+Prefer a representative class containing:
+
+- Primitive values.
+- Defaults.
+- Inherited properties.
+- Nested values.
+- Lists.
+- Object references.
+- Meaningful validation constraints.
+
+If the autofocus class is unsuitable, recommend another representative device class and explain why.
+
+Select only one device class for the main prototype, as required by the Jira acceptance criteria.
+
+Do not expand the implementation to every IC device class.
+
+Additional small synthetic fixtures may be proposed to demonstrate encoding or graph-validation behavior if necessary, but clearly distinguish these from the representative real device class.
+
+## 12. Stage 6 — Evaluate encoded versus normalized validation
+
+Design and compare the following approaches.
+
+### Approach A: Encoded validation
+
+Validate the original pypg-encoded configuration representation directly.
+
+Investigate:
+
+- Object structure validation.
+- Typed value validation.
+- Class path validation.
+- List validation.
+- Object ID validation.
+- Reference validation.
+- Unknown property detection.
+- JSON Schema complexity.
+- Error readability.
+
+### Approach B: Normalized-data validation
+
+Investigate a lightweight, data-only parser that converts the pypg encoding into a validation-friendly representation.
+
+It must not use a decoding mechanism that constructs hardware objects.
+
+Preserve all information required for validation, including:
+
+- Object identity.
+- Class identity.
+- Type tags where relevant.
+- Shared references.
+- Numeric IDs.
+- Original configuration paths.
+- Reference relationships.
+- Nested data structures.
+
+Do not flatten the object graph in a way that loses identity or makes reference validation impossible.
+
+### Approach C: Combined validation
+
+Evaluate whether it is beneficial to:
+
+1. Validate the encoded structure.
+2. Normalize the data without constructing hardware objects.
+3. Validate device properties using JSON Schema.
+4. Perform custom graph and semantic checks.
+5. Aggregate all independently detectable validation errors.
+
+Do not automatically choose this approach simply because it is suggested here.
+
+Compare all approaches using:
+
+- Correctness.
+- Implementation complexity.
+- Schema complexity.
+- Metadata requirements.
+- Compatibility with existing configurations.
+- Ability to preserve graph relationships.
+- Error-message quality.
+- Performance.
+- Maintainability.
+- Dependency isolation.
+- Security.
+- Schema versioning support.
+- Risk of divergence from actual pypg decoding behavior.
+
+Recommend an approach based on repository evidence and prototype results.
+
+## 13. Stage 7 — Schema generation prototype plan
+
+Prepare a plan to generate JSON Schema automatically from the selected device class.
+
+Investigate the appropriate JSON Schema draft and Python validation library based on existing repository dependencies and compatibility.
+
+The proposed generator should support whatever metadata is reliably available, such as:
+
+- Property names.
+- Types.
+- Default values.
+- Required properties.
+- Optional properties.
+- Nested structures.
+- Lists.
+- Enums.
+- Inherited properties.
+- Known constraints.
+
+Explicitly document any metadata that cannot be generated.
+
+Design the generator so that its output is deterministic and suitable for future versioned schema publication.
+
+Avoid silently generating permissive schemas for unsupported types. Unsupported metadata should be reported explicitly.
+
+Do not infer required fields, nullability or safety constraints without evidence.
+
+Plan a handwritten JSON Schema for the same device class, derived independently from verified class definitions and accepted configuration behavior.
+
+Compare both schemas property by property.
+
+Identify:
+
+- Correctly generated constraints.
+- Missing constraints.
+- Incorrectly generated constraints.
+- Information requiring manual definitions.
+- Information requiring custom validation logic.
+- Potential schema drift risks.
+- Long-term maintenance implications.
+
+Recommend one of:
+
+- Generated schemas.
+- Handwritten schemas.
+- Mixed approach.
+
+The recommendation must follow from actual findings.
+
+## 14. Stage 8 — Custom validation checks
+
+Investigate which validation requirements cannot be reliably represented using standard JSON Schema.
+
+Include, where applicable:
+
+### Strict numeric types
+
+Determine how to distinguish:
+
+- Integer versus float.
+- Boolean versus integer.
+- Encoded type tags versus actual loaded value types.
+- Other numeric edge cases accepted or rejected by pypg.
+
+Consider the incident IN-7289 referenced in the proposal.
+
+### Object graph integrity
+
+Investigate:
+
+- Missing IDs.
+- Duplicate IDs.
+- Invalid ID types.
+- References to nonexistent objects.
+- References to incompatible classes.
+- Valid shared references.
+- Forward references.
+- Cyclic references, according to actual pypg rules.
+
+Do not treat shared references as duplicate object definitions.
+
+### Property validation
+
+Investigate:
+
+- Unknown properties.
+- Missing required properties.
+- Invalid types.
+- Invalid nested list elements.
+- Invalid enum values.
+- Nullability.
+- Serialized versus nonserialized properties.
+
+### Hardware-specific constraints
+
+Investigate:
+
+- Hardware safety bounds.
+- Wiring rules.
+- Cross-property dependencies.
+- Cross-device relationships.
+- Existing validators.
+
+Consider the wiring incidents IN-7324 and IN-7328 identified in the architecture proposal.
+
+Do not invent hardware constraints.
+
+If a constraint requires subsystem expert input or is outside the one-class prototype scope, document it as follow-up work.
+
+Explain which checks belong in JSON Schema and which require custom Python logic.
+
+## 15. Stage 9 — Validator library architecture
+
+Investigate the best location for the shared validation library.
+
+Compare:
+
+### Option 1
+
+Validator located in the IC repository but independently packaged.
+
+### Option 2
+
+Validator located in a shared Python package or separate repository.
+
+### Option 3
+
+Validator located under instrument-config/tools/.
+
+### Option 4
+
+An existing internal shared-library mechanism discovered during repository investigation.
+
+Evaluate:
+
+- Dependency direction.
+- Installation requirements.
+- Package publishing.
+- CI/CD compatibility.
+- Supported Python versions.
+- Existing internal package registries.
+- Release management.
+- Schema distribution.
+- Version compatibility.
+- Ownership and maintainability.
+- Security.
+- Risk of circular dependencies.
+- Reusability across all three consumers.
+
+Investigate separating:
+
+1. Schema generation, which may require access to IC device class metadata.
+2. Versioned schema artifacts.
+3. Runtime validation, which must not require IC.
+
+Evaluate how schemas generated from IC can be published and consumed independently by instrument-config CI, instrument-icc and IC itself.
+
+Investigate the feasibility of running the validator in a clean environment without IC, hardware libraries or physical instruments.
+
+Provide an architecture diagram and decision matrix.
+
+Do not create a new repository, publish a package or alter existing packaging infrastructure during this spike without approval.
+
+## 16. Stage 10 — Schema versioning considerations
+
+Ensure the recommended architecture supports the schema versioning principles described in the proposal.
+
+Investigate:
+
+- MAJOR.MINOR schema versions.
+- Independent versioning of profile, calibration and overrides.
+- Deterministic schema generation.
+- Preservation of historical schema artifacts.
+- Backwards compatibility with supported older minor versions.
+- Schema snapshot tests.
+- Detection of schema changes without a version bump.
+- Publishing schemas with IC releases.
+- Validation against the schema version targeted by the configuration.
+
+The implementation of the complete migration system is outside this ticket's scope.
+
+Do not introduce schema-version fields into production configurations as part of this spike.
+
+Explain how the recommended solution will support future versioning work without implementing unrelated features.
+
+## 17. Stage 11 — Testing strategy
+
+Prepare a comprehensive but proportionate test plan for the selected device class and isolated prototype.
+
+Include applicable positive and negative scenarios:
+
+- Valid representative device configuration.
+- Invalid primitive type.
+- Integer supplied instead of a strict float.
+- Boolean supplied instead of an integer.
+- Type tag inconsistent with the actual value.
+- Missing required property.
+- Missing optional property.
+- Misspelled or unknown property.
+- Invalid nested object.
+- Invalid nested list element.
+- Invalid enum value.
+- Malformed encoded object.
+- Missing object ID.
+- Duplicate object ID.
+- Invalid reference.
+- Valid shared reference.
+- Out-of-range value using an authoritative constraint.
+- Multiple simultaneous validation errors.
+- Precise original configuration path in error messages.
+- Generated schema validity.
+- Generated versus handwritten schema comparison.
+- Deterministic generation across repeated runs.
+- No hardware object construction during validation.
+- Validator execution without IC installed.
+- Existing functionality remains unchanged.
+
+Where relevant, evaluate performance against a representative full-size configuration.
+
+Do not claim that full-instrument validation is supported merely because the one-class prototype works.
+
+Distinguish:
+
+- Tests applicable to the selected device class.
+- Synthetic graph-validation tests.
+- Tests deferred to subsequent implementation tickets.
+
+Use existing test frameworks and project conventions where practical.
+
+Do not weaken, remove or skip existing tests to achieve a successful result.
+
+Report actual test commands, results, failures and limitations after approved implementation.
+
+## 18. Stage 12 — Code quality and engineering standards
+
+For any subsequently approved implementation:
+
+- Follow existing coding conventions.
+- Apply SOLID principles where appropriate.
+- Prefer simple, maintainable solutions.
+- Avoid unnecessary abstraction and overengineering.
+- Use clear function and variable names.
+- Separate parsing, metadata extraction, schema generation and validation responsibilities.
+- Use appropriate Python type annotations.
+- Provide actionable exception messages.
+- Keep functions focused and cognitive complexity manageable.
+- Reuse suitable existing utilities.
+- Avoid duplicated logic.
+- Handle edge cases.
+- Avoid unnecessary dependencies.
+- Follow existing linting, static analysis and SonarQube requirements, if applicable.
+- Preserve backwards compatibility.
+- Do not introduce security vulnerabilities.
+- Do not suppress quality checks merely to make them pass.
+
+Inspect existing quality configurations rather than assuming which tools are used.
+
+## 19. Explicitly out of scope
+
+Do not implement any of the following as part of IN-7763 unless separately authorized:
+
+- Full production validator for all IC device classes.
+- Production IC configuration loader replacement.
+- Integration with production CI/CD pipelines.
+- AWS S3 changes.
+- Greengrass deployment changes.
+- VoyagerConfigurationManager changes.
+- Calibration save helper.
+- Stable ID migration.
+- Configuration migration framework.
+- Calibration file separation.
+- Shared v4 profile implementation.
+- Instrument override implementation.
+- config-pull implementation.
+- Configuration checksum deployment.
+- Instrument status reporting.
+- Automatic approval workflows.
+- Changes to physical instruments.
+- Changes to production configuration files.
+- Unrelated refactoring.
+
+This spike should provide the evidence and recommendations needed by subsequent implementation tickets.
+
+## 20. Mandatory investigation deliverables
+
+Before requesting implementation approval, provide the following structured report.
+
+### A. Executive summary
+
+Explain the ticket, its purpose and your preliminary findings.
+
+### B. Repository understanding
+
+Document repository responsibilities, relevant files, dependencies and existing execution flows.
+
+### C. Current configuration architecture
+
+Provide a flowchart and explain how YAML becomes hardware objects.
+
+### D. pypg encoding analysis
+
+Document the actual encoding rules using verified examples.
+
+### E. PropertyClass metadata coverage
+
+Provide the complete evidence-based metadata matrix.
+
+### F. Representative device class
+
+Identify the selected class, its source path, its important properties and why it was chosen.
+
+### G. Validation representation comparison
+
+Compare encoded, normalized and combined approaches.
+
+### H. Schema generation feasibility
+
+Explain what can be generated, what cannot and why.
+
+### I. Validator location comparison
+
+Provide a decision matrix and recommended dependency architecture.
+
+### J. Implementation plan
+
+For each proposed implementation task, provide:
+
+- Task ID.
+- Objective.
+- Repository.
+- Exact file path.
+- Create or modify.
+- Proposed implementation details.
+- Reason for the change.
+- Dependencies.
+- Potential impact.
+- Acceptance criteria.
+- Testing requirements.
+- Risk level.
+
+Include a proposed directory structure and relevant architecture diagrams.
+
+### K. Test plan
+
+Provide test scenarios, expected outcomes and traceability to requirements.
+
+### L. Risks, assumptions and limitations
+
+Clearly distinguish verified findings from assumptions and unknowns.
+
+### M. Acceptance criteria traceability
+
+Map every Jira scope item and acceptance criterion to the proposed deliverables.
+
+### N. Approval request
+
+Explicitly state which changes require my approval.
+
+Do not proceed to implementation.
+
+## 21. Final deliverables after approved implementation
+
+After completing the approved prototype, produce:
+
+1. Working proof of concept for one actual IC device class.
+2. Generated JSON Schema.
+3. Handwritten JSON Schema for the same class.
+4. Schema comparison report.
+5. Encoded versus normalized validation experiment results.
+6. Metadata coverage matrix.
+7. Applicable custom validation demonstrations.
+8. Automated tests and execution results.
+9. Evidence demonstrating hardware-independent validation.
+10. Evidence demonstrating IC-independent validation.
+11. Validator location and packaging recommendation.
+12. Architecture diagrams.
+13. Complete list of files created or modified.
+14. Known limitations and follow-up requirements.
+15. Final technical recommendation document ready for Confluence and IC team review.
+
+Prepare the recommendation document under the following title:
+
+IN-7763 — Configuration Schema Generation and Validation Architecture: Spike Findings
+
+The document must clearly answer:
+
+- Should the instrument graph be validated in encoded or decoded form?
+- Should schemas be generated, handwritten or mixed?
+- Where should the validator library live?
+
+Include the evidence supporting each decision.
+
+Provide a concise Jira update summarizing completed work, prototype results, recommendations and remaining review requirements.
+
+## 22. Downstream tickets
+
+IN-7763 blocks:
+
+- IN-7764
+- IN-7765
+- IN-7766
+- IN-7767
+
+If these ticket descriptions are available in the workspace, inspect them to understand the implications of your findings.
+
+Do not implement their requirements as part of IN-7763.
+
+If their descriptions are unavailable, explicitly state that limitation instead of inventing their objectives.
+
+Provide recommendations that will help the engineers responsible for these subsequent tickets.
+
+## 23. Communication and decision-making
+
+Work proactively and independently.
+
+Do not ask me questions that can be answered by inspecting the codebase, configuration files, tests, Git history or documentation.
+
+Ask focused questions only when:
+
+- A genuine architectural ambiguity remains after investigation.
+- A required source or repository is unavailable.
+- Hardware safety requirements cannot be established from authoritative sources.
+- A decision requires IC team or subsystem expert input.
+- The proposed implementation requires my approval.
+- The approved implementation scope needs to change.
+
+When asking a question:
+
+- Explain what you investigated.
+- Explain why the question remains unresolved.
+- Provide available alternatives.
+- Explain their trade-offs.
+- Recommend an option where evidence permits.
+
+Do not fabricate source paths, metadata capabilities, test results or implementation behavior.
+
+## 24. Definition of done
+
+The ticket is considered ready for closure only when:
+
+- The actual pypg encoding has been investigated.
+- PropertyClass metadata capabilities and limitations are documented.
+- One representative device class has been selected.
+- Schema generation has been prototyped.
+- A handwritten schema has been created for comparison.
+- The encoded versus decoded validation decision is supported by evidence.
+- The generated versus handwritten versus mixed decision is supported by evidence.
+- The validator library location recommendation is justified.
+- Hardware-independent and IC-independent validation feasibility has been demonstrated or limitations explicitly documented.
+- Relevant prototype tests have been executed.
+- The final technical write-up has been prepared.
+- All Jira acceptance criteria have been mapped to evidence.
+- The write-up has been submitted for IC team review.
+- Actual IC team review is confirmed before marking the Jira ticket complete.
+
+## 25. Start now
+
+Begin with Phase A: Read-only investigation.
+
+First, inspect the workspace, Jira requirements, architecture proposal and relevant repositories.
+
+Then conduct the technical investigation and produce the complete evidence-based implementation plan.
+
+Do not make any code changes at this stage.
+
+Once the investigation and implementation plan are ready, present them to me and finish with an explicit approval request:
+
+“IN-7763 investigation and prototype implementation plan are ready for review. Do you approve the proposed changes and authorize me to proceed with the isolated proof-of-concept implementation?”
+
+STOP and wait for my approval.
