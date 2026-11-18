@@ -949,3 +949,19 @@ Once the investigation and implementation plan are ready, present them to me and
 “IN-7763 investigation and prototype implementation plan are ready for review. Do you approve the proposed changes and authorize me to proceed with the isolated proof-of-concept implementation?”
 
 STOP and wait for my approval.
+
+
+
+I have reviewed and approved the IN-7763 investigation findings and proposed implementation plan.
+
+Proceed with the isolated proof-of-concept implementation strictly within the approved scope.
+
+Follow all architectural constraints, engineering standards, acceptance criteria and testing requirements from my original prompt.
+
+Do not introduce any changes outside the approved plan. If additional modifications, dependencies or architectural changes become necessary, explain them and request my approval before proceeding.
+
+Complete the prototype, execute the applicable tests, compare the generated and handwritten schemas, verify hardware-independent and IC-independent validation, review the final changes and prepare the complete technical recommendation document for IC team review.
+
+Do not commit, push or create a pull request.
+
+Take ownership of the approved implementation end to end and provide evidence of the results rather than only describing what was implemented.
